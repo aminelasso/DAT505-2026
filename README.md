@@ -116,7 +116,7 @@ _Week 8: Class projects_
 
 * Midterm exam (20%): Real-time, physical, open-book (with computers) project. 2 hours.
 
-_Week 10: Bootstrapping
+_Week 10: Bootstrapping_
 
 * Class exercises on bootstrapping
 * Mandatory readings: TBD
