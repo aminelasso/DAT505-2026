@@ -13,6 +13,11 @@ execute:
 editor: visual
 ---
 
+<<<<<<< HEAD
+## 
+
+test
+=======
 ## Context
 
 In 1971, Moore and Krupat were interested in the "social mechanics" of conformity. They wanted to know: Is conformity driven by **who you are** (your personality) or by **who you are talking to** (social status)?
@@ -90,3 +95,4 @@ Run the code below. What does it do? What do you conclude?
 ### Question 11
 
 Generate a plot to illustrate the effect of the experiment (including a representation of the linear model). Conclude on the results of this experiment.
+>>>>>>> c6196fab6e0e01bf8f802e3e12d2e9e354068f78

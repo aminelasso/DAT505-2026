@@ -116,26 +116,25 @@ _Week 8: Class projects_
 
 * Midterm exam (20%): Real-time, physical, open-book (with computers) project. 2 hours.
 
-_Week 10: Content analysis for behavioral science (1)_
+_Week 10: Bootstrapping_
 
-* Introduction to text analysis using tidytext
-* Class projects
-* Mandatory readings: Sections 1-9 of Text Mining with R https://www.tidytextmining.com/
+* Class exercises on bootstrapping
+* Mandatory readings: TBD
 
-_Week 11: Content analysis for behavioral science (2)_
-* Introduction to text classification
-* Class projects
-* Mandatory readings:
-    * The Augmented Social Scientist: https://journals.sagepub.com/eprint/QQGF4CWUMRDVYEQ8UVJ9/full
+_Week 11: Intro to predictive modelling (1)_
 
-_Week 12: Intro to predictive modelling_
+* Fundamentals: Overfitting and the bias-variance trade-off; Out-of-sample prediction vs. in-sample explanation; Cross-validation techniques
+* Mandatory readings: TBD
 
-* TBD
+_Week 12: Intro to predictive modelling (2)_
 
-_Week 13: Class projects_
+* Fundamentals: Penalized models (esp. Lasso regression); Regularization and automatic variable selection
+* Mandatory readings: TBD
 
-* This class is dedicated to personal work on the students' research reports.
-* Mandatory readings: Chapter 12 of From Question to Knowledge: <https://bookdown.org/danielnettle2/data_analysis/>
+_Week 13: Intro to predictive modelling (3)_
+
+* Fundamentals: Hyperparameter tuning: selecting the optimal penalty ( λ ); Predicting categories: the case of classification and the confusion matrix
+* Mandatory readings: TBD
 
 **APRIL 10: SUBMIT RESEARCH REPORT 2**
 
