@@ -1,0 +1,583 @@
+---
+title: "Afrobarometer Analysis"
+format:
+  html:
+    self_contained: true 
+    toc: true 
+    embed-resources: true
+execute:
+  echo: true
+  warning: false
+  message: false
+  error: false
+editor: visual
+---
+
+```{r}
+
+# Loading the required packages:
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(DiagrammeR)
+  library(janitor)
+  library(knitr)
+  library(stringr)
+  library(ggplot2)
+  library(sandwich)
+  library(lmtest)
+})
+
+
+Afro <- read_csv(
+  "MOR_R10.Data_06June24.wtd_.final_.release_updated.13Feb25.csv",
+  show_col_types = FALSE
+)
+
+```
+
+# Introduction:
+
+Urban inequality in Morocco remains marked by persistent deficits in infrastructure, public services, and economic security within many urban neighborhoods. In such contexts, households face recurring exposure to material deprivation and insecurity. While these conditions are often framed as policy failures, they also shape how households adapt to constrained environments. Where formal welfare systems provide limited protection, informal support networks, particularly assistance from family, friends, and neighbors, play a central role in coping with risk and uncertainty. As shown by Moser (1998), social networks function as key assets for urban households facing structural vulnerability. Using Afrobarometer Round 10 data, this study examines how material deprivation relate to reliance on informal support and perceived insecurity in urban Morocco.
+
+# Research question and hypotheses:
+
+## Research question:
+
+This study examines how material deprivation shapes households’ reliance on informal support networks in urban Morocco. Specifically, it asks:
+
+"How does material deprivation affect households’ reliance on informal support networks, and how does this reliance differ between kin-based and non-kin-based networks in urban Morocco?"
+
+This research question focuses on material deprivation as a central constraint faced by urban households and treats informal social networks as adaptive mechanisms through which households cope with limited access to formal welfare provision.
+
+## Hypotheses:
+
+Drawing on work on urban vulnerability and informal coping strategies, as well as insights from Human Behavioral Ecology emphasizing adaptive behavior under resource constraints, the analysis tests the following hypotheses:
+
+**H1 - Material deprivation and informal support:** Households experiencing higher levels of material deprivation are more likely to rely on informal support networks for assistance than households facing lower levels of deprivation.
+
+**H2 - Network composition under deprivation:** As material deprivation increases, households are more likely to rely on kin-based networks (family members) rather than non-kin networks (friends or neighbors) for support.
+
+```{r}
+
+#This is to visualize the research question, and how the hypothesis emerged. 
+
+grViz("
+digraph RQ {
+  graph [layout = dot, rankdir = LR]
+
+  dep  [label = 'Material deprivation\\n(Lived poverty index: Q7A–Q7E)']
+  kin  [label = 'Kin support\\n(Family assistance: Q8A)']
+  nonk [label = 'Non-kin support\\n(Friends/neighbors assistance: Q8B)']
+  age  [label = 'Control: Age (Q1)']
+  sex  [label = 'Control: Sex (Q101)']
+
+  dep  -> kin  [label = 'H1 (+)']
+  dep  -> nonk [label = 'H2 (+), weaker than H1']
+
+  age  -> kin  [style = dashed]
+  age  -> nonk [style = dashed]
+  sex  -> kin  [style = dashed]
+  sex  -> nonk [style = dashed]
+}
+")
+
+```
+
+Figure 1 summarizes the conceptual framework underlying the research question and the two hypotheses examined in this study.
+
+## Data and Data Preparation
+
+### Data
+
+This study relies on data from **Afrobarometer Round 10 (Morocco, 2024)**, a nationally representative survey of Moroccan adults aged 18 and over. Afrobarometer employs a stratified, multi-stage cluster sampling design, ensuring broad coverage of urban contexts across the country. The survey collects detailed information on respondents’ socioeconomic conditions, social relations, and coping strategies.
+
+The Afrobarometer dataset is particularly well suited to the present analysis because it provides individual-level measures of material deprivation and social support, allowing the examination of how households rely on informal networks under conditions of constraint.
+
+### Data preparation
+
+The dataset is structured at the individual respondent level, with one row per respondent and one column per variable. Data preparation focused on three main steps:
+
+1.  Selecting variables directly relevant to the research question and hypotheses
+
+2.  Recoding categorical survey responses into analytically meaningful formats;
+
+3.  Constructing composite indicators for material deprivation and informal support.
+
+Several response categories in Afrobarometer (such as *“No further response”*, *“Don’t know”*, or refusals) do not convey substantive information about respondents’ experiences or behaviors. These responses were therefore treated as missing values. The number of observations affected by this recoding is reported explicitly in the descriptive statistics section. While this approach reduces the effective sample size, retaining these categories would introduce ambiguity into the measurement of key constructs. The potential implications for sample composition and bias are discussed in the limitations section.
+
+## Variables and Measures
+
+### Material deprivation
+
+Material deprivation is the central explanatory variable in this study. It captures the extent to which households face structural constraints in meeting basic needs. The measure is constructed using Afrobarometer’s lived poverty indicators, which ask respondents how frequently during the past year they went without essential items, including:
+
+-   Food
+
+-   Clean water
+
+-   Medical care
+
+-   Cooking fuel
+
+-   Cash income
+
+These indicators capture experienced deprivation rather than formal income status, making them particularly appropriate in contexts characterized by informal labor markets. Higher values indicate greater material deprivation.
+
+Material deprivation is theoretically central to the analysis, as heightened resource constraints are expected to shape households’ reliance on informal coping strategies.
+
+```{r}
+# Recoding lived poverty responses into a numeric scale (0–4)
+# Higher values = frequent deprivation
+
+recode_lived_poverty <- function(x) {
+  case_when(
+    x == "Never" ~ 0,
+    x == "Just once or twice" ~ 1,
+    x == "Several times" ~ 2,
+    x == "Many times" ~ 3,
+    x == "Always" ~ 4,
+    x %in% c("Don't know", "Refused") ~ NA_real_,
+    TRUE ~ NA_real_
+  )
+}
+
+Afro_dep_items <- Afro %>%
+  transmute(
+    dep_food   = recode_lived_poverty(Q7A),
+    dep_water  = recode_lived_poverty(Q7B),
+    dep_medic  = recode_lived_poverty(Q7C),
+    dep_fuel   = recode_lived_poverty(Q7D),
+    dep_income = recode_lived_poverty(Q7E)
+  )
+
+# Here, we construct material deprivation index as the mean of available components
+# Respondents with all five components missing are coded as NA
+
+Afro_deprivation <- Afro_dep_items %>%
+  mutate(
+    dep_index = if_else(
+      if_all(everything(), is.na),
+      NA_real_,
+      rowMeans(across(everything()), na.rm = TRUE)
+    )
+  )
+
+```
+
+### Informal support networks:
+
+Reliance on informal support networks constitutes the primary outcome of interest. It is measured using survey questions asking whether respondents received assistance during the past year from:
+
+1.  Family members (kin-based networks)
+2.  Friends or neighbors (non-kin networks)
+
+These two forms of support are analyzed separately. This distinction is theoretically motivated: kin-based ties are generally more stable and enforceable, while non-kin ties may be more flexible but less reliable under conditions of scarcity. Examining these outcomes separately allows the analysis to assess not only whether material deprivation is associated with greater reliance on informal support, but also whether deprivation alters the composition of support networks.
+
+```{r}
+# Recoding informal support into binary indicators
+# 1 = received support at least once
+# 0 = received no support
+# NA = non-substantive response
+
+recode_support_binary <- function(x) {
+  case_when(
+    x == "No" ~ 0,
+    x %in% c("Yes, once or twice",
+             "Yes, several times",
+             "Yes, often") ~ 1,
+    x %in% c("Don't know", "Refused", "Refused to answer") ~ NA_real_,
+    TRUE ~ NA_real_
+  )
+}
+
+Afro_support <- Afro %>%
+  transmute(
+    kin_support = recode_support_binary(Q8A),
+    nonkin_support = recode_support_binary(Q8B)
+  )
+
+```
+
+### Control variables
+
+To preserve parsimony and interpretability, the analysis includes two control variables that are theoretically relevant to patterns of informal support:
+
+1.  **Age**: Social networks tend to expand and consolidate over the life course. Older individuals may have more established family ties and reciprocal obligations, which can affect access to informal support independently of material deprivation.
+2.  **Sex**: Gendered social roles and expectations shape patterns of care, reciprocity, and support within households and communities. Men and women may differ in both their access to and reporting of informal assistance, making sex an important control variable when analyzing reliance on social networks.
+3.  **Urban–rural location:** Settlement type shapes both material deprivation and the structure of informal support systems (e.g., proximity to kin, community density, and access to formal services). Urban–rural location is therefore included as a control to avoid conflating deprivation effects with broader contextual differences across settlement types.
+
+These controls account for basic demographic differences that could confound the relationship between material deprivation and reliance on informal support, while remaining closely aligned with the study’s core research question.
+
+```{r}
+
+Afro_controls <- Afro %>%
+  transmute(
+    # Age (already numeric in the data)
+    age = as.numeric(Q1),
+
+    # Sex
+    sex = case_when(
+      Q101 == "Man" ~ "Male",
+      Q101 == "Woman" ~ "Female",
+      TRUE ~ NA_character_
+    ) %>%
+      factor(levels = c("Male", "Female")),
+
+    # Urban / Rural
+    urban = case_when(
+      URBRUR == "Urban" ~ "Urban",
+      URBRUR == "Rural" ~ "Rural",
+      TRUE ~ NA_character_
+    ) %>%
+      factor(levels = c("Urban", "Rural"))
+  )
+
+```
+
+We now can create a new dataset ready for descriptive statistics and inferential statistics. Because all objects were created row-by-row from the same original dataset, we can safely bind them column-wise.
+
+```{r}
+Afro_analysis <- bind_cols(
+  Afro_deprivation,
+  Afro_support,
+  Afro_controls
+)
+
+```
+
+# Descriptive statistics:
+
+## Missing values:
+
+```{r}
+# Missingness by variable (to report later)
+missing_summary <- Afro_analysis %>%
+  summarise(across(everything(), ~ sum(is.na(.x)))) %>%
+  pivot_longer(
+    everything(),
+    names_to = "variable",
+    values_to = "n_missing"
+  ) %>%
+  arrange(desc(n_missing))
+
+missing_summary 
+```
+
+The table reports the number of missing observations for each variable after recoding non-substantive responses (ex: *“Don’t know”*, *refusals*) as missing.
+
+Overall, missingness is low and concentrated in a small number of survey items:
+
+-   Among the components of the material deprivation index, missing values range from 4 to 18 observations, depending on the item. Missingness is slightly higher for cash income and medical care, which is consistent with the greater sensitivity or ambiguity of these questions.
+
+-   The material deprivation index has no missing values, as it is constructed as the mean of available components. This indicates that nearly all respondents provided valid information on at least one lived poverty item.
+
+-   Missingness for the outcome variables is minimal: 4 observations for kin support and 1 observation for non-kin support.
+
+-   Control variables (age, sex, and urban–rural location) have no missing values.
+
+As such, the impact of missingness on descriptive patterns and subsequent inferential analyses is expected to be minimal.
+
+## Sample overview:
+
+```{r}
+Afro_analysis %>%
+  summarise(
+    n = n(),
+    mean_age = mean(age, na.rm = TRUE),
+    share_female = mean(sex == "Female", na.rm = TRUE),
+    share_urban = mean(urban == "Urban", na.rm = TRUE)
+  )
+
+```
+
+The analytical sample consists of 1,200 respondents. The average age of respondents is approximately 40 years (*mean = 39.8*), indicating a broadly adult sample spanning multiple life stages. The sample is gender-balanced, with 50% of respondents identifying as female. A majority of respondents (67.3%) reside in urban areas, reflecting the greater concentration of the Moroccan population in urban settings.
+
+## Distribution of material deprivation:
+
+```{r}
+summary(Afro_analysis$dep_index)
+
+ggplot(Afro_analysis, aes(x = dep_index)) +
+  geom_histogram(binwidth = 0.25, fill = "grey70", color = "black") +
+  theme_minimal() +
+  labs(
+    x = "Material deprivation index",
+    y = "Count"
+  )
+
+```
+
+The distribution of the material deprivation index is highly asymmetric, with a strong concentration of observations at low values and a long right tail. A large share of respondents report no or very low levels of deprivation, while a progressively smaller number experience frequent shortages across multiple basic needs.
+
+This pattern is confirmed by the summary statistics. The index has a minimum of 0 and a median of 0.4, indicating that at least half of respondents experienced little to no deprivation during the past year. The mean (0.58) is higher than the median, reflecting the influence of a smaller group of respondents reporting higher levels of deprivation. The upper tail of the distribution extends to the maximum value of 4, corresponding to frequent shortages across several basic necessities.
+
+The combination of visual and numerical evidence indicates a right-skewed distribution, consistent with the episodic nature of material hardship, in which severe deprivation affects a relatively small subset of households.
+
+To mitigate the influence of extreme values in the upper tail of the distribution, the material deprivation index is transformed using a logarithmic specification. Specifically, a log(1 + x) transformation is applied to the index. This transformation reduces right skewness while preserving the ordinal structure of the original measure and allowing the inclusion of respondents reporting no deprivation. The transformed index is used in subsequent inferential analyses, while descriptive statistics are reported using the original scale for ease of interpretation.
+
+```{r}
+# Log-transform material deprivation to reduce right skewness
+# log(1 + x) allows inclusion of zero values
+
+Afro_analysis <- Afro_analysis %>%
+  mutate(
+    dep_index_log = log1p(dep_index)
+  )
+
+ggplot(Afro_analysis, aes(x = dep_index_log)) +
+  geom_histogram(binwidth = 0.15, fill = "grey70", color = "black") +
+  theme_minimal() +
+  labs(
+    x = "Log-transformed material deprivation index",
+    y = "Count"
+  )
+
+
+```
+
+The log-transformed material deprivation index is visibly less right-skewed than the original measure, indicating that the transformation effectively compresses extreme values and yields a more balanced distribution for inferential analysis.
+
+## Informal support:
+
+```{r}
+Afro_analysis %>%
+  summarise(
+    share_kin_support = mean(kin_support, na.rm = TRUE),
+    share_nonkin_support = mean(nonkin_support, na.rm = TRUE)
+  )
+
+```
+
+Approximately 34.6% of respondents report having received kin-based support from family members during the past year, while 16.0% report having received support from friends or neighbors. This indicates that reliance on family networks is substantially more common than reliance on non-kin networks.
+
+This descriptive pattern suggests that informal support, when it occurs, is more frequently mobilized through kin-based ties, consistent with the expectation that family relationships constitute a primary source of assistance, particularly in contexts characterized by material constraint.
+
+## H1 preview - Deprivation x informal support
+
+```{r}
+
+#Let's create a dep_any binary variable 
+Afro_analysis <- Afro_analysis %>%
+  mutate(
+    dep_any = case_when(
+      is.na(dep_index) ~ NA_real_,
+      dep_index == 0 ~ 0,
+      dep_index > 0 ~ 1
+    )
+  )
+
+Afro_analysis %>%
+  group_by(dep_any) %>%
+  summarise(
+    kin_support_rate = mean(kin_support, na.rm = TRUE),
+    nonkin_support_rate = mean(nonkin_support, na.rm = TRUE),
+    n = n()
+  )
+
+
+```
+
+Descriptively, reliance on informal support differs sharply by material deprivation status.
+
+Among respondents reporting no material deprivation, only 11.3% report receiving kin-based support, and 2.8% report receiving support from friends or neighbors. In contrast, among respondents experiencing any material deprivation, nearly 47.8% report receiving kin-based support, and 23.5% report receiving non-kin support.
+
+This represents a substantial increase in reliance on informal support among materially deprived respondents. For kin-based support, the share increases by more than 36 percentage points, while for non-kin support it increases by approximately 21 percentage points.
+
+These descriptive patterns are consistent with H1, which predicts greater reliance on informal support under conditions of material deprivation. They also provide preliminary support for H2, as the deprivation gradient is stronger for kin-based support than for non-kin support. While deprivation is associated with increased reliance on both types of informal networks, family-based assistance appears to play a more central role when households face material constraints.
+
+## H2 preview - kin vs non-kin within deprivation
+
+```{r}
+
+h2_table <- Afro_analysis %>%
+  filter(!is.na(dep_any)) %>%
+  group_by(dep_any) %>%
+  summarise(
+    kin_support_rate = mean(kin_support, na.rm = TRUE),
+    nonkin_support_rate = mean(nonkin_support, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  pivot_longer(
+    cols = c(kin_support_rate, nonkin_support_rate),
+    names_to = "support_type",
+    values_to = "rate"
+  ) %>%
+  mutate(
+    support_type = recode(
+      support_type,
+      kin_support_rate = "Kin support (family)",
+      nonkin_support_rate = "Non-kin support (friends/neighbors)"
+    ),
+    dep_any = factor(dep_any, levels = c(0, 1), labels = c("No deprivation", "Any deprivation"))
+  )
+
+h2_table
+
+ggplot(h2_table, aes(x = dep_any, y = rate, group = support_type)) +
+  geom_col(position = "dodge") +
+  theme_minimal() +
+  labs(
+    x = "Material deprivation status",
+    y = "Share receiving support",
+    fill = "Support type"
+  )
+
+```
+
+The figure and table show clear differences in the composition of informal support networks by material deprivation status.
+
+Among respondents reporting no material deprivation, reliance on informal support is generally low, and when it occurs it is predominantly kin-based. Approximately 11.3% report receiving assistance from family members, compared to only 2.8% reporting support from friends or neighbors.
+
+In contrast, among respondents experiencing any material deprivation, reliance on informal support increases substantially for both network types. Nearly 47.8% report receiving kin-based support, while 23.5% report receiving non-kin support.
+
+Importantly, although material deprivation is associated with increased reliance on both kin and non-kin networks, kin-based support remains consistently more prevalent than non-kin support, and the absolute increase associated with deprivation is larger for family assistance. This pattern is consistent with H2, which predicts that households facing material constraints prioritize more stable, kin-based support networks over non-kin alternatives.
+
+```{r}
+cor(
+  Afro_analysis$dep_index,
+  Afro_analysis$kin_support,
+  use = "pairwise.complete.obs"
+)
+
+cor(
+  Afro_analysis$dep_index,
+  Afro_analysis$nonkin_support,
+  use = "pairwise.complete.obs"
+)
+
+```
+
+Material deprivation is positively associated with reliance on informal support networks. The correlation between the deprivation index and kin-based support is 0.49, indicating a moderately strong association, while the correlation with non-kin support is slightly lower at 0.46. These descriptive correlations suggest that higher levels of material deprivation are linked to greater reliance on informal assistance, with a marginally stronger relationship for family-based support than for support from friends or neighbors.
+
+# Inferential statistics:
+
+We now move from descriptive patterns to formal hypothesis testing. The objective is to assess whether the observed associations between material deprivation and informal support persist once basic demographic controls are taken into account.
+
+Given the binary nature of the outcome variables, the analysis estimates linear probability models (LPMs) using ordinary least squares. This approach allows for direct interpretation of coefficients as changes in probability and facilitates comparison across kin-based and non-kin-based outcomes. Robust standard errors are used in all models and diagnostic checks are discussed subsequently.
+
+## Model 1: Material deprivation and kin-based support (H1)
+
+We first estimate a model predicting the probability of receiving kin-based support as a function of material deprivation, controlling for age, sex, and urban–rural location.
+
+```{r}
+model_kin_lpm <- lm(
+  kin_support ~ dep_index_log + age + sex + urban,
+  data = Afro_analysis
+)
+
+coeftest(
+  model_kin_lpm,
+  vcov = vcovHC(model_kin_lpm, type = "HC1")
+)
+
+```
+
+This linear probability model estimates the association between material deprivation and the likelihood of receiving kin-based support, controlling for age, sex, and urban–rural residence.
+
+Material deprivation is positively and strongly associated with kin-based support. The coefficient (0.651, *p* \< 0.001) indicates that a one-unit increase in the log-transformed deprivation index is associated with an increase of approximately 65 percentage points in the probability of receiving support from family members, holding other variables constant.
+
+This result provides strong inferential support for H1, confirming that households facing greater material deprivation are substantially more likely to rely on kin-based informal support.
+
+### Control variables
+
+-   **Age**: it is negatively associated with kin-based support (−0.0023, *p* = 0.003), suggesting that older respondents are slightly less likely to report receiving family assistance, conditional on deprivation and other controls. While statistically significant, the magnitude of this effect is small.
+
+-   **Sex**: shows no meaningful association with kin-based support. The coefficient for female respondents is close to zero and statistically insignificant, indicating no systematic gender difference once material deprivation is accounted for.
+
+-   **Urban–rural residence:** it is also not significantly associated with kin-based support, suggesting that, conditional on deprivation and demographics, settlement type does not independently predict reliance on family assistance.Interpretation relative to H1.
+
+### Interpretation relative to H1:
+
+The results indicate that material deprivation is the primary driver of kin-based support, while demographic characteristics play a secondary role. The strong and statistically significant effect of deprivation reinforces the interpretation that informal family networks function as a key coping mechanism under conditions of economic constraint.
+
+```{r}
+# Build prediction grid for Model 1
+pred_grid_kin <- Afro_analysis %>%
+  summarise(
+    age = mean(age, na.rm = TRUE)
+  ) %>%
+  crossing(
+    dep_index_log = seq(min(Afro_analysis$dep_index_log, na.rm = TRUE),
+                        max(Afro_analysis$dep_index_log, na.rm = TRUE),
+                        length.out = 100),
+    sex = factor("Male", levels = levels(Afro_analysis$sex)),
+    urban = factor("Urban", levels = levels(Afro_analysis$urban))
+  ) %>%
+  mutate(
+    pred = predict(model_kin_lpm, newdata = ., type = "response")
+  )
+
+ggplot(pred_grid_kin, aes(x = dep_index_log, y = pred)) +
+  geom_line(linewidth = 1) +
+  theme_minimal() +
+  labs(
+    x = "Log-transformed material deprivation index",
+    y = "Predicted probability of receiving kin support",
+    title = "Model 1: Predicted kin support by material deprivation"
+  )
+
+```
+
+The figure shows a strong, positive linear relationship between material deprivation and the predicted probability of receiving kin-based support. Holding age, sex, and urban–rural residence constant, higher levels of material deprivation are associated with a substantially greater likelihood of relying on family assistance.
+
+## Model 2: Material deprivation and non-kin support (H1 & H2)
+
+```{r}
+model_nonkin_lpm <- lm(
+  nonkin_support ~ dep_index_log + age + sex + urban,
+  data = Afro_analysis
+)
+
+coeftest(
+  model_nonkin_lpm,
+  vcov = vcovHC(model_nonkin_lpm, type = "HC1")
+)
+
+```
+
+This model estimates the association between material deprivation and the probability of receiving non-kin support (from friends or neighbors), controlling for age, sex, and urban–rural residence.
+
+Material deprivation is positively and statistically significantly associated with non-kin support. The coefficient (0.447, *p* \< 0.001) indicates that higher levels of material deprivation are associated with a higher probability of receiving assistance from friends or neighbors, holding other variables constant.
+
+While the association is strong and statistically significant, the magnitude of the deprivation effect is smaller than that observed for kin-based support in Model 1, indicating that material hardship increases reliance on both types of informal networks but more strongly through family ties.
+
+### Control variables:
+
+-   **Age:** it is not significantly associated with non-kin support, suggesting no systematic life-course pattern in reliance on friends or neighbors once deprivation is accounted for.
+
+-   **Sex**: again, it shows no statistically significant association with non-kin support.
+
+-   **Urban–rural residence:** it is negatively and significantly associated with non-kin support (−0.053, *p* ≈ 0.024), indicating that respondents in rural areas are less likely to report receiving non-kin assistance compared to urban respondents, conditional on material deprivation and demographics.
+
+### Interpretation relative to H2:
+
+With Model 1, these results provide inferential support for H2. Although material deprivation increases reliance on both kin-based and non-kin support, the effect of deprivation is substantially stronger for kin-based networks. This suggests that under conditions of economic constraint, households prioritize more stable family-based ties over non-kin alternatives, while non-kin support remains more context-dependent and sensitive to settlement type.
+
+```{r}
+pred_grid_nonkin <- Afro_analysis %>%
+  summarise(
+    age = mean(age, na.rm = TRUE)
+  ) %>%
+  crossing(
+    dep_index_log = seq(min(Afro_analysis$dep_index_log, na.rm = TRUE),
+                        max(Afro_analysis$dep_index_log, na.rm = TRUE),
+                        length.out = 100),
+    sex = factor("Male", levels = levels(Afro_analysis$sex)),
+    urban = factor("Urban", levels = levels(Afro_analysis$urban))
+  ) %>%
+  mutate(
+    pred = predict(model_nonkin_lpm, newdata = ., type = "response")
+  )
+
+ggplot(pred_grid_nonkin, aes(x = dep_index_log, y = pred)) +
+  geom_line(linewidth = 1) +
+  theme_minimal() +
+  labs(
+    x = "Log-transformed material deprivation index",
+    y = "Predicted probability of receiving non-kin support",
+    title = "Model 2: Predicted non-kin support by material deprivation"
+  )
+
+```
+
+The figure indicates a positive association between material deprivation and the predicted probability of receiving non-kin support. Controlling for age, sex, and urban–rural residence, higher levels of deprivation are associated with a greater likelihood of relying on friends or neighbors, although the slope is less steep than for kin-based support.
